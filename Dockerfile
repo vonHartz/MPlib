@@ -6,6 +6,15 @@ WORKDIR /workspace
 # basic development tools
 RUN yum install -y eigen3-devel tinyxml-devel wget && yum clean all
 
+# install pip and setuptools
+RUN yum install -y python3-devel
+RUN yum install -y gcc openssl-devel bzip2-devel libffi-devel
+RUN yum groupinstall -y "Development Tools"
+RUN wget https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz && tar -xzf Python-3.10.12.tgz && cd Python-3.10.12 && ./configure --enable-optimizations --with-openssl=/usr/local/ssl && make altinstall && python3.10 -V
+# RUN python3.10 -m pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org wheel
+RUN wget https://files.pythonhosted.org/packages/b8/8b/31273bf66016be6ad22bb7345c37ff350276cfd46e389a0c2ac5da9d9073/wheel-0.41.2-py3-none-any.whl
+RUN python3.10 -m pip install wheel-0.41.2-py3-none-any.whl
+
 # -------------------------------------------------------------------------- #
 # OMPL
 # -------------------------------------------------------------------------- #
@@ -69,7 +78,7 @@ RUN git clone --single-branch -b 1.0.4 --depth 1 https://github.com/ros/urdfdom.
     cmake .. -DCMAKE_BUILD_TYPE=Release && make -j && make install && \
     rm -rf /workspace/urdfdom
 
-RUN git clone --single-branch -b v2.5.6 --depth 1 https://github.com/stack-of-tasks/pinocchio.git && \
+RUN git clone --single-branch -b v2.6.20 --depth 1 https://github.com/stack-of-tasks/pinocchio.git && \
     cd pinocchio && git submodule update --init --recursive && mkdir build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PYTHON_INTERFACE=OFF -DBUILD_WITH_AUTODIFF_SUPPORT=ON -DBUILD_WITH_URDF_SUPPORT=ON && make -j && make install && \
     rm -rf /workspace/pinocchio
