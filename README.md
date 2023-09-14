@@ -13,7 +13,7 @@ This fork is for easily building MPlib from source to support Python versions ou
 git clone --recursive https://github.com/vonHartz/MPlib.git
 cd MPlib
 docker build -t mplib .
-docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "python3.10 -m setup.py bdist_wheel"
+docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "python3.10 -m setup bdist_wheel"
 <!-- docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "python3.10 -m build" -->
 pip install -r requirements.txt
 pip install dist/mplib-0.0.8-cp310-cp310-linux_x86_64.whl
