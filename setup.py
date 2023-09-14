@@ -5,6 +5,11 @@ import subprocess
 
 from setuptools import setup, find_packages, Extension
 from setuptools.command.build_ext import build_ext
+from setuptools.dist import Distribution
+
+class BinaryDistribution(Distribution):
+    def is_pure(self):
+        return False
 
 
 class CMakeExtension(Extension):
@@ -87,4 +92,6 @@ setup(
     ext_modules=[CMakeExtension("mplib.pymp")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
+    include_package_data=True,
+    distclass=BinaryDistribution,
 )

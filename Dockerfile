@@ -78,7 +78,7 @@ RUN git clone --single-branch -b 1.0.4 --depth 1 https://github.com/ros/urdfdom.
     cmake .. -DCMAKE_BUILD_TYPE=Release && make -j && make install && \
     rm -rf /workspace/urdfdom
 
-RUN git clone --single-branch -b v2.6.20 --depth 1 https://github.com/stack-of-tasks/pinocchio.git && \
+RUN git clone --single-branch -b v2.5.6 --depth 1 https://github.com/stack-of-tasks/pinocchio.git && \
     cd pinocchio && git submodule update --init --recursive && mkdir build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DBUILD_PYTHON_INTERFACE=OFF -DBUILD_WITH_AUTODIFF_SUPPORT=ON -DBUILD_WITH_URDF_SUPPORT=ON && make -j && make install && \
     rm -rf /workspace/pinocchio
