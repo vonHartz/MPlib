@@ -100,4 +100,4 @@ RUN git clone --single-branch -b v1.5.0 --depth 1 https://github.com/orocos/oroc
 
 RUN git clone --recursive https://github.com/vonHartz/MPlib.git && cd MPlib && python3.10 setup.py bdist_wheel
 
-RUN useradd -rm -d /home/user -s /bin/bash -g root -u 1000 user
+# RUN useradd -rm -d /home/user -s /bin/bash -g root -u 1000 user

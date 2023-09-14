@@ -9,11 +9,12 @@ MPlib is a lightweight python package for motion planning, which is decoupled fr
 
 This fork is for easily building MPlib from source to support Python versions outside what the original package offers, eg. Python 3.10.
 
-
-Clone the repo, then
 ```
+git clone --recursive https://github.com/vonHartz/MPlib.git
+cd MPlib
 docker build -t mplib .
-docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "cd /workspace && python3.10 -m build"
+docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "python3.10 -m setup.py bdist_wheel"
+<!-- docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "python3.10 -m build" -->
 pip install -r requirements.txt
 pip install dist/mplib-0.0.8-cp310-cp310-linux_x86_64.whl
 ```
