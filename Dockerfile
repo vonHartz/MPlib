@@ -8,12 +8,12 @@ RUN yum install -y eigen3-devel tinyxml-devel wget && yum clean all
 
 # install pip and setuptools
 RUN yum install -y python3-devel
-RUN yum install -y gcc openssl-devel bzip2-devel libffi-devel
+RUN yum install -y openssl-devel bzip2-devel libffi-devel
 RUN yum groupinstall -y "Development Tools"
-RUN wget https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz && tar -xzf Python-3.10.12.tgz && cd Python-3.10.12 && ./configure --enable-optimizations --with-openssl=/usr/local/ssl && make altinstall && python3.10 -V
-# RUN python3.10 -m pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org wheel
-RUN wget https://files.pythonhosted.org/packages/b8/8b/31273bf66016be6ad22bb7345c37ff350276cfd46e389a0c2ac5da9d9073/wheel-0.41.2-py3-none-any.whl
-RUN python3.10 -m pip install wheel-0.41.2-py3-none-any.whl
+RUN yum install -y openssl11 openssl11-devel && mkdir /usr/local/openssl11 && cd /usr/local/openssl11 && ln -s /usr/lib64/openssl11 lib && ln -s /usr/include/openssl11 include
+RUN wget https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz && tar -xzf Python-3.10.12.tgz && cd Python-3.10.12 &&  ./configure --with-openssl=/usr/local/openssl11 && make altinstall && python3.10 -V
+RUN python3.10 -m pip install --trusted-host=pypi.org --trusted-host=files.pythonhosted.org --user pip
+RUN python3.10 -m pip install wheel build
 
 # -------------------------------------------------------------------------- #
 # OMPL
@@ -95,5 +95,7 @@ RUN git clone --single-branch -b v1.5.0 --depth 1 https://github.com/orocos/oroc
     cd orocos_kinematics_dynamics/orocos_kdl && mkdir build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && make -j && make install && \
     rm -rf /workspace/orocos_kinematics_dynamics
+
+RUN git clone --recursive https://github.com/vonHartz/MPlib.git && cd MPlib && python3.10 -m build
 
 RUN useradd -rm -d /home/user -s /bin/bash -g root -u 1000 user

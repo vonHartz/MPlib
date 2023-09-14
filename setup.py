@@ -5,11 +5,11 @@ import subprocess
 
 from setuptools import setup, find_packages, Extension
 from setuptools.command.build_ext import build_ext
-from setuptools.dist import Distribution
+# from setuptools.dist import Distribution
 
-class BinaryDistribution(Distribution):
-    def is_pure(self):
-        return False
+# class BinaryDistribution(Distribution):
+#     def is_pure(self):
+#         return False
 
 
 class CMakeExtension(Extension):
@@ -87,11 +87,11 @@ setup(
         "Topic :: Utilities",
     ],
     packages=find_packages(include="mplib*"),
-    python_requires=">=3.6",
+    python_requires="==3.10",
     install_requires=["numpy==1.23", "toppra >= 0.4.0", "transforms3d >= 0.3.1"],
     ext_modules=[CMakeExtension("mplib.pymp")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
-    include_package_data=True,
-    distclass=BinaryDistribution,
+    # include_package_data=True,
+    # distclass=BinaryDistribution,
 )

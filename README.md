@@ -28,7 +28,7 @@ RUN git clone --single-branch https://github.com/flexible-collision-library/fcl.
 
 cd MPlib/docker
 docker build -t mplib .
-docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "cd /workspace && python3.10 setup.py bdist_wheel"
+docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "cd /workspace && python3.10 -m build"
 pip install -r requirements.txt
 pip install dist/mplib-0.0.8-cp310-cp310-linux_x86_64.whl
 ```
