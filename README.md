@@ -15,7 +15,7 @@ cd MPlib
 docker build -t mplib .
 docker run --rm -v $(pwd):/workspace mplib /bin/bash -c "python3.10 -m setup bdist_wheel && auditwheel repair dist/mplib-0.0.8-cp310-cp310-linux_x86_64.whl"
 pip install -r requirements.txt
-pip install dist/mplib-0.0.8-cp310-cp310-linux_x86_64.whl
+pip install dist/mplib-0.0.8-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
 ```
 
 
