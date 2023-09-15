@@ -13,7 +13,7 @@ RUN yum groupinstall -y "Development Tools"
 RUN yum install -y openssl11 openssl11-devel && mkdir /usr/local/openssl11 && cd /usr/local/openssl11 && ln -s /usr/lib64/openssl11 lib && ln -s /usr/include/openssl11 include
 RUN wget https://www.python.org/ftp/python/3.10.12/Python-3.10.12.tgz && tar -xzf Python-3.10.12.tgz && cd Python-3.10.12 &&  ./configure --with-openssl=/usr/local/openssl11 && make altinstall && python3.10 -V
 RUN python3.10 -m pip install --trusted-host=pypi.org --trusted-host=files.pythonhosted.org --user pip
-RUN python3.10 -m pip install wheel build
+RUN python3.10 -m pip install wheel build auditwheel
 
 # -------------------------------------------------------------------------- #
 # OMPL
