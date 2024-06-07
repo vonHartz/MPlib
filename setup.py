@@ -5,6 +5,11 @@ from pathlib import Path
 
 from setuptools import Extension, find_packages, setup
 from setuptools.command.build_ext import build_ext
+# from setuptools.dist import Distribution
+
+# class BinaryDistribution(Distribution):
+#     def is_pure(self):
+#         return False
 
 
 # A CMakeExtension needs a sourcedir instead of a file list.
@@ -74,8 +79,11 @@ class CMakeBuild(build_ext):
 setup(
     name="mplib",
     packages=find_packages(include="mplib*"),
-    package_data={"": ["**/*.pyi"], "mplib": ["py.typed"]},
+    python_requires=">=3.10",
+    install_requires=["numpy==1.23", "toppra >= 0.4.0", "transforms3d >= 0.3.1"],
     ext_modules=[CMakeExtension("mplib.pymp")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
+    include_package_data=True,
+    # distclass=BinaryDistribution,
 )
