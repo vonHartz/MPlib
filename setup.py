@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from setuptools import Extension, find_packages, setup
+from setuptools import Extension, find_namespace_packages, setup
 from setuptools.command.build_ext import build_ext
 # from setuptools.dist import Distribution
 
@@ -78,7 +78,7 @@ class CMakeBuild(build_ext):
 
 setup(
     name="mplib",
-    packages=find_packages(include="mplib*"),
+    packages=find_namespace_packages(include="mplib*"),
     python_requires=">=3.10",
     install_requires=["setuptools==61.0", "numpy==1.23", "toppra >= 0.4.0", "transforms3d >= 0.3.1"],
     package_data={"": ["**/*.pyi"], "mplib": ["py.typed"]},
