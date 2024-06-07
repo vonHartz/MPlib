@@ -81,9 +81,8 @@ setup(
     packages=find_packages(include="mplib*"),
     python_requires=">=3.10",
     install_requires=["numpy==1.23", "toppra >= 0.4.0", "transforms3d >= 0.3.1"],
+    package_data={"": ["**/*.pyi"], "mplib": ["py.typed"]},
     ext_modules=[CMakeExtension("mplib.pymp")],
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
-    include_package_data=True,
-    # distclass=BinaryDistribution,
 )
