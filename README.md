@@ -17,6 +17,19 @@ functionalities in robot manipulation.
 
 ## Installation
 
+This fork is for providing the SD (desired duration) variant of TOPPRA.
+I did not have the time to fix the new build system, so installation is hacked as follows:
+
+```
+git clone --recursive https://github.com/vonHartz/MPlib.git
+pip install mplib
+cp MPlib/mplib/planner.py ~/miniconda3/envs/<NAME OF YOUR CONDA ENV>/lib/python3.10/site-packages/mplib/planner.py
+```
+
+## Old installation instructions
+
+(This process currently fails. Fix it. Might pull inspiration from the official MPLIB github-flow compilation.)
+
 This fork is for easily building MPlib from source to support Python versions outside what the original package offers, eg. Python 3.10.
 
 ```
