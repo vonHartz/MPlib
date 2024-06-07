@@ -23,7 +23,7 @@ endif(CCACHE_FOUND)
 # Pinocchio uses its own FindCppAD, but does not provide it.
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules")
 
-find_package(Eigen3 3.3.7 REQUIRED)
+find_package(Eigen3 3.4.0 REQUIRED)
 set(Boost_NO_WARN_NEW_VERSIONS 1)  # silence Boost CMake warnings
 find_package(Boost REQUIRED COMPONENTS system filesystem)
 find_package(ompl REQUIRED)
