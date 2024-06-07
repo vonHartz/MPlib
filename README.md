@@ -26,6 +26,9 @@ pip install mplib
 cp MPlib/mplib/planner.py ~/miniconda3/envs/<NAME OF YOUR CONDA ENV>/lib/python3.10/site-packages/mplib/planner.py
 ```
 
+If this fails, check your mplib version and pull the specific tag from the repo.
+If this still fails, just manually copy the `TOPP_SD` code manually into `planner.py`.
+
 ## Old installation instructions
 
 (This process currently fails. Fix it. Might pull inspiration from the official MPLIB github-flow compilation.)
