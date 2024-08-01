@@ -1,0 +1,4 @@
+``PlanningWorld``
+-------------------
+
+.. autoclass:: mplib.PlanningWorld

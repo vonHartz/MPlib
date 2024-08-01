@@ -1,0 +1,4 @@
+``Pose``
+-------------------------
+
+.. autoclass:: mplib.Pose

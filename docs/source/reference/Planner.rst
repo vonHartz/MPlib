@@ -1,0 +1,4 @@
+``Planner``
+-------------
+
+.. autoclass:: mplib.Planner

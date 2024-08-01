@@ -1,0 +1,4 @@
+``ArticulatedModel``
+-------------------------
+
+.. autoclass:: mplib.ArticulatedModel

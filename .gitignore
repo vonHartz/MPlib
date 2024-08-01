@@ -5,14 +5,18 @@ _ext
 *.so
 build/
 dist/
+eggs/
+.eggs/
 *.egg-info/
+.cache
 wheelhouse/
 
 # pybind11-stubgen
 stubs/
 
 # ipython/jupyter notebooks
-#*.ipynb
+notebooks/
+*.ipynb
 **/.ipynb_checkpoints/
 
 # Editor temporaries
@@ -27,3 +31,11 @@ stubs/
 .vscode
 # Mac OS-specific storage files
 .DS_Store
+
+# GUI config
+imgui.ini
+
+# Converted URDF that used to contain package:// paths
+**/*_package_keyword_replaced.urdf
+dev/drake
+dev/pybind11_mkdoc

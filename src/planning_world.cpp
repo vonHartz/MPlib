@@ -1,247 +1,548 @@
-#include "fcl/geometry/octree/octree.h"
-#include "macros_utils.hpp"
-#include "planning_world.h"
-#include "fcl_model.h"
-#include "urdf_utils.h"
+#include "mplib/planning_world.h"
 
+#include <memory>
 
-#define DEFINE_TEMPLATE_PW(DATATYPE) template class PlanningWorldTpl<DATATYPE>; template class WorldCollisionResultTpl<DATATYPE>;
+#include "mplib/collision_detection/collision_matrix.h"
+#include "mplib/collision_detection/fcl/fcl_utils.h"
+#include "mplib/macros/assert.h"
 
-DEFINE_TEMPLATE_PW(double)
+namespace mplib {
 
-DEFINE_TEMPLATE_PW(float)
+// Explicit Template Instantiation Definition ==========================================
+#define DEFINE_TEMPLATE_PLANNING_WORLD(S) template class PlanningWorldTpl<S>
 
+DEFINE_TEMPLATE_PLANNING_WORLD(float);
+DEFINE_TEMPLATE_PLANNING_WORLD(double);
 
-template<typename DATATYPE>
-PlanningWorldTpl<DATATYPE>::PlanningWorldTpl(std::vector<ArticulatedModel_ptr> const &articulations, std::vector<std::string> const & articulation_names,
-                                             std::vector<CollisionObject_ptr> const &normal_objects, std::vector<std::string> const & normal_object_names,
-                                             int move_articulation_id):
-        articulations(articulations),
-        normal_objects(normal_objects),
-        articulation_names(articulation_names),
-        normal_object_names(normal_object_names),
-        move_articulation_id(move_articulation_id),
-        has_point_cloud(false),
-        use_point_cloud(false),
-        has_attach(false),
-        use_attach(false) {}
-        //articulation_flags(articulation_flags) {}
-
-
-template<typename DATATYPE>
-void PlanningWorldTpl<DATATYPE>::setQpos(int const &index, VectorX const &state) {
-    articulations[index]->setQpos(state);
+template <typename S>
+PlanningWorldTpl<S>::PlanningWorldTpl(
+    const std::vector<ArticulatedModelPtr> &articulations,
+    const std::vector<FCLObjectPtr> &objects)
+    : acm_(std::make_shared<AllowedCollisionMatrix>()) {
+  for (const auto &art : articulations)
+    planned_articulation_map_[art->getName()] = articulation_map_[art->getName()] = art;
+  for (const auto &object : objects) object_map_[object->name] = object;
 }
 
-template<typename DATATYPE>
-void PlanningWorldTpl<DATATYPE>::updatePointCloud(Matrixx3 const& vertices, double  const& resolution) {
-    octomap::OcTree* tree = new octomap::OcTree(resolution);
-    for (size_t i = 0; i < vertices.rows(); i++) 
-        tree->updateNode(octomap::point3d(vertices(i, 0), vertices(i, 1), vertices(i, 2)), true);
-
-    auto tree_ptr = std::shared_ptr<const octomap::OcTree>(tree);
-    auto pose = Transform3::Identity();
-    point_cloud = std::make_shared<CollisionObject>(std::make_shared< fcl::OcTree<DATATYPE> >(tree_ptr), pose);
-    has_point_cloud = true;
-    return ;
+template <typename S>
+std::vector<std::string> PlanningWorldTpl<S>::getArticulationNames() const {
+  std::vector<std::string> names;
+  for (const auto &pair : articulation_map_) names.push_back(pair.first);
+  return names;
 }
 
-template<typename DATATYPE>
-void PlanningWorldTpl<DATATYPE>::updateAttachedBox(Vector3 const & size, int const & link_id, Vector7 const & pose) {
-    //CollisionGeometry_ptr collision_geometry = std::make_shared<Box>((DATATYPE) size[0], (DATATYPE) size[1], (DATATYPE) size[2]);
-    attach_link_id = link_id;
-    attach_to_link_pose.linear() = Quaternion(pose[3], pose[4], pose[5], pose[6]).matrix();
-    attach_to_link_pose.translation() = pose.head(3);
-    attached_box = std::make_shared<CollisionObject>(std::make_shared<fcl::Box<DATATYPE>>((DATATYPE) size[0],
-                                                    (DATATYPE) size[1], (DATATYPE) size[2]), attach_to_link_pose);
-    has_attach = true;
-    return ;
+template <typename S>
+std::vector<ArticulatedModelTplPtr<S>> PlanningWorldTpl<S>::getPlannedArticulations()
+    const {
+  std::vector<ArticulatedModelPtr> arts;
+  for (const auto &pair : planned_articulation_map_) arts.push_back(pair.second);
+  return arts;
 }
 
+template <typename S>
+void PlanningWorldTpl<S>::addArticulation(const ArticulatedModelPtr &model,
+                                          bool planned) {
+  articulation_map_[model->getName()] = model;
+  setArticulationPlanned(model->getName(), planned);
+}
 
-template<typename DATATYPE>
-void PlanningWorldTpl<DATATYPE>::setQposAll(VectorX const &state) {
-    size_t total_dim = 0;
-    for (size_t i = 0; i < articulations.size(); i++) {
-        auto n = articulations[i]->getQposDim();
-        auto segment = state.segment(total_dim, total_dim + n); //[total_dim, total_dim + n)
-        ASSERT(segment.size() == n, "Bug with size " + std::to_string(segment.size()) + " " + std::to_string(n));
-        setQpos(i, segment);
-        total_dim += n;
+template <typename S>
+bool PlanningWorldTpl<S>::removeArticulation(const std::string &name) {
+  auto nh = articulation_map_.extract(name);
+  if (nh.empty()) return false;
+  planned_articulation_map_.erase(name);
+  // Update acm_
+  auto art_link_names = nh.mapped()->getUserLinkNames();
+  acm_->removeEntry(art_link_names);
+  acm_->removeDefaultEntry(art_link_names);
+  return true;
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::setArticulationPlanned(const std::string &name,
+                                                 bool planned) {
+  auto art = articulation_map_.at(name);
+  auto it = planned_articulation_map_.find(name);
+  if (planned && it == planned_articulation_map_.end())
+    planned_articulation_map_[name] = art;
+  else if (!planned && it != planned_articulation_map_.end())
+    planned_articulation_map_.erase(it);
+}
+
+template <typename S>
+std::vector<std::string> PlanningWorldTpl<S>::getObjectNames() const {
+  std::vector<std::string> names;
+  for (const auto &pair : object_map_) names.push_back(pair.first);
+  return names;
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::addObject(const std::string &name,
+                                    const CollisionObjectPtr &collision_object) {
+  addObject(
+      std::make_shared<FCLObject>(name, Pose<S>(collision_object->getTransform()),
+                                  std::vector<CollisionObjectPtr> {collision_object},
+                                  std::vector<Pose<S>> {Pose<S>()}));
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::addPointCloud(const std::string &name,
+                                        const MatrixX3<S> &vertices,
+                                        double resolution) {
+  auto tree = std::make_shared<octomap::OcTree>(resolution);
+  for (const auto &row : vertices.rowwise())
+    tree->updateNode(octomap::point3d(row(0), row(1), row(2)), true);
+  addObject(name,
+            std::make_shared<CollisionObject>(std::make_shared<fcl::OcTree<S>>(tree)));
+}
+
+template <typename S>
+bool PlanningWorldTpl<S>::removeObject(const std::string &name) {
+  auto nh = object_map_.extract(name);
+  if (nh.empty()) return false;
+  attached_body_map_.erase(name);
+  // Update acm_
+  acm_->removeEntry(name);
+  acm_->removeDefaultEntry(name);
+  return true;
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachObject(const std::string &name,
+                                       const std::string &art_name, int link_id,
+                                       const std::vector<std::string> &touch_links) {
+  const auto T_world_obj = object_map_.at(name)->pose;
+  const auto T_world_link =
+      planned_articulation_map_.at(art_name)->getPinocchioModel()->getLinkPose(link_id);
+  attachObject(name, art_name, link_id, Pose<S>(T_world_link.inverse() * T_world_obj),
+               touch_links);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachObject(const std::string &name,
+                                       const std::string &art_name, int link_id) {
+  const auto T_world_obj = object_map_.at(name)->pose;
+  const auto T_world_link =
+      planned_articulation_map_.at(art_name)->getPinocchioModel()->getLinkPose(link_id);
+  attachObject(name, art_name, link_id, Pose<S>(T_world_link.inverse() * T_world_obj));
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachObject(const std::string &name,
+                                       const std::string &art_name, int link_id,
+                                       const Pose<S> &pose,
+                                       const std::vector<std::string> &touch_links) {
+  auto obj = object_map_.at(name);
+  auto nh = attached_body_map_.extract(name);
+  auto body =
+      std::make_shared<AttachedBody>(name, obj, planned_articulation_map_.at(art_name),
+                                     link_id, pose.toIsometry(), touch_links);
+  if (!nh.empty()) {
+    // Update acm_ to disallow collision between name and previous touch_links
+    acm_->removeEntry(name, nh.mapped()->getTouchLinks());
+    nh.mapped() = body;
+    attached_body_map_.insert(std::move(nh));
+  } else
+    attached_body_map_[name] = body;
+  // Update acm_ to allow collision between name and touch_links
+  acm_->setEntry(name, touch_links, true);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachObject(const std::string &name,
+                                       const std::string &art_name, int link_id,
+                                       const Pose<S> &pose) {
+  auto obj = object_map_.at(name);
+  auto nh = attached_body_map_.extract(name);
+  auto body = std::make_shared<AttachedBody>(
+      name, obj, planned_articulation_map_.at(art_name), link_id, pose.toIsometry());
+  if (!nh.empty()) {
+    body->setTouchLinks(nh.mapped()->getTouchLinks());
+    nh.mapped() = body;
+    attached_body_map_.insert(std::move(nh));
+  } else {
+    attached_body_map_[name] = body;
+    // Set touch_links to the name of self links colliding with object currently
+    std::vector<std::string> touch_links;
+    auto collisions = checkSelfCollision();
+    for (const auto &collision : collisions)
+      if (collision.link_name1 == name)
+        touch_links.push_back(collision.link_name2);
+      else if (collision.link_name2 == name)
+        touch_links.push_back(collision.link_name1);
+    body->setTouchLinks(touch_links);
+    // Update acm_ to allow collision between name and touch_links
+    acm_->setEntry(name, touch_links, true);
+  }
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachObject(const std::string &name,
+                                       const CollisionGeometryPtr &p_geom,
+                                       const std::string &art_name, int link_id,
+                                       const Pose<S> &pose,
+                                       const std::vector<std::string> &touch_links) {
+  removeObject(name);
+  addObject(name, std::make_shared<CollisionObject>(p_geom));
+  attachObject(name, art_name, link_id, pose, touch_links);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachObject(const std::string &name,
+                                       const CollisionGeometryPtr &p_geom,
+                                       const std::string &art_name, int link_id,
+                                       const Pose<S> &pose) {
+  removeObject(name);
+  addObject(name, std::make_shared<CollisionObject>(p_geom));
+  attachObject(name, art_name, link_id, pose);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachSphere(S radius, const std::string &art_name,
+                                       int link_id, const Pose<S> &pose) {
+  // FIXME: Use link_name to avoid changes
+  auto name = art_name + "_" + std::to_string(link_id) + "_sphere";
+  attachObject(name, std::make_shared<fcl::Sphere<S>>(radius), art_name, link_id, pose);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachBox(const Vector3<S> &size, const std::string &art_name,
+                                    int link_id, const Pose<S> &pose) {
+  // FIXME: Use link_name to avoid changes
+  auto name = art_name + "_" + std::to_string(link_id) + "_box";
+  attachObject(name, std::make_shared<fcl::Box<S>>(size), art_name, link_id, pose);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::attachMesh(const std::string &mesh_path,
+                                     const std::string &art_name, int link_id,
+                                     const Pose<S> &pose, bool convex) {
+  // FIXME: Use link_name to avoid changes
+  auto name = art_name + "_" + std::to_string(link_id) + "_mesh";
+  if (convex)
+    attachObject(
+        name,
+        collision_detection::fcl::loadMeshAsConvex<S>(mesh_path, Vector3<S> {1, 1, 1}),
+        art_name, link_id, pose);
+  else
+    attachObject(
+        name,
+        collision_detection::fcl::loadMeshAsBVH<S>(mesh_path, Vector3<S> {1, 1, 1}),
+        art_name, link_id, pose);
+}
+
+template <typename S>
+bool PlanningWorldTpl<S>::detachObject(const std::string &name, bool also_remove) {
+  if (also_remove) {
+    object_map_.erase(name);
+    // Update acm_
+    acm_->removeEntry(name);
+    acm_->removeDefaultEntry(name);
+  }
+
+  auto nh = attached_body_map_.extract(name);
+  if (nh.empty()) return false;
+  // Update acm_ to disallow collision between name and touch_links
+  acm_->removeEntry(name, nh.mapped()->getTouchLinks());
+  return true;
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::printAttachedBodyPose() const {
+  for (const auto &[name, body] : attached_body_map_)
+    std::cout << name << " global pose:\n"
+              << Pose<S>(body->getGlobalPose()) << std::endl;
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::setQpos(const std::string &name,
+                                  const VectorX<S> &qpos) const {
+  articulation_map_.at(name)->setQpos(qpos);
+}
+
+template <typename S>
+void PlanningWorldTpl<S>::setQposAll(const VectorX<S> &state) const {
+  size_t i = 0;
+  for (const auto &pair : planned_articulation_map_) {
+    auto art = pair.second;
+    auto n = art->getQposDim();
+    auto qpos = state.segment(i, n);  // [i, i + n)
+    ASSERT(static_cast<size_t>(qpos.size()) == n,
+           "Bug with size " + std::to_string(qpos.size()) + " " + std::to_string(n));
+    art->setQpos(qpos);
+    i += n;
+  }
+  ASSERT(i == static_cast<size_t>(state.size()), "State dimension is not correct");
+}
+
+template <typename S>
+std::vector<WorldCollisionResultTpl<S>> PlanningWorldTpl<S>::checkSelfCollision(
+    const CollisionRequest &request) const {
+  std::vector<WorldCollisionResult> ret;
+  CollisionResult result;
+
+  updateAttachedBodiesPose();
+
+  // Collision involving planned articulation
+  for (const auto &[art_name, art] : planned_articulation_map_) {
+    auto fcl_model = art->getFCLModel();
+    // Articulation self-collision
+    const auto results = fcl_model->checkSelfCollision(request, acm_);
+    ret.insert(ret.end(), results.begin(), results.end());
+
+    // Collision among planned_articulation_map_
+    for (const auto &[art_name2, art2] : planned_articulation_map_) {
+      if (art_name == art_name2) continue;
+      for (auto &result :
+           fcl_model->checkCollisionWith(art2->getFCLModel(), request, acm_)) {
+        result.collision_type = "self_self";
+        ret.push_back(result);
+      }
     }
-    ASSERT(total_dim == state.size(), "State dimension is not correct");
-}
 
-template<typename DATATYPE>
-std::vector<WorldCollisionResultTpl<DATATYPE>> PlanningWorldTpl<DATATYPE>::selfCollide(int index, CollisionRequest const& request) {
-    std::vector<WorldCollisionResult> ret;
-    auto fcl_model = articulations[index]->getFCLModel();
-    auto results = fcl_model.collideFull(request);
-    auto CollisionLinkNames = fcl_model.getCollisionLinkNames();
-    auto CollisionPairs = fcl_model.getCollisionPairs();
-    for (size_t j = 0; j < results.size(); j++) 
-        if (results[j].isCollision())
-        {
-            WorldCollisionResult tmp;
-            auto x = CollisionPairs[j].first, y = CollisionPairs[j].second;
-            tmp.res = results[j];
-            tmp.object_name1 = articulation_names[index];
-            tmp.object_name2 = articulation_names[index];
-            tmp.collision_type = "self";
-            tmp.link_name1 = CollisionLinkNames[x];
-            tmp.link_name2 = CollisionLinkNames[y];
-            ret.push_back(tmp);
+    // Articulation collide with attached_body_map_
+    for (const auto &[attached_body_name, attached_body] : attached_body_map_)
+      for (auto &result :
+           fcl_model->checkCollisionWith(attached_body->getObject(), request, acm_)) {
+        result.collision_type = "self_attached";
+        ret.push_back(result);
+      }
+  }
+
+  // Collision among attached_body_map_
+  for (auto it = attached_body_map_.begin(); it != attached_body_map_.end(); ++it)
+    for (auto it2 = attached_body_map_.begin(); it2 != it; ++it2) {
+      auto name1 = it->first, name2 = it2->first;
+      if (auto type = acm_->getAllowedCollision(name1, name2);
+          !type || type == collision_detection::AllowedCollision::NEVER) {
+        result.clear();
+        collision_detection::fcl::collide(it->second->getObject(),
+                                          it2->second->getObject(), request, result);
+        if (result.isCollision()) {
+          WorldCollisionResult tmp;
+          tmp.res = result;
+          tmp.collision_type = "attached_attached";
+          tmp.object_name1 = name1;
+          tmp.object_name2 = name2;
+          tmp.link_name1 = name1;
+          tmp.link_name2 = name2;
+          ret.push_back(tmp);
         }
-    return ret;
-}
-
-template<typename DATATYPE>
-std::vector<WorldCollisionResultTpl<DATATYPE>> PlanningWorldTpl<DATATYPE>::collideWithOthers(int index, CollisionRequest const& request) {
-    std::vector<WorldCollisionResult> ret;
-    auto pinocchio_model = articulations[index]->getPinocchioModel();
-    auto fcl_model = articulations[index]->getFCLModel();
-    auto CollisionObjects = fcl_model.getCollisionObjects();
-    auto CollisionLinkNames = fcl_model.getCollisionLinkNames();
-
-    for (size_t i = 0; i < articulations.size(); i++) {
-        if (i == index)
-            continue;
-        auto fcl_model1 = articulations[i]->getFCLModel();
-        auto CollisionObjects1 = fcl_model.getCollisionObjects();
-        auto CollisionLinkNames1 = fcl_model.getCollisionLinkNames();
-        for (size_t j = 0; j < CollisionObjects.size(); j++)
-            for (size_t k = 0; k < CollisionObjects1.size(); k++) {
-                CollisionResult result;
-                result.clear();
-                fcl::collide(CollisionObjects[j].get(), CollisionObjects1[k].get(), request, result);
-                if (result.isCollision()) {
-                    WorldCollisionResult tmp;
-                    tmp.res = result;
-                    tmp.object_name1 = articulation_names[index];
-                    tmp.object_name2 = articulation_names[i];
-                    tmp.collision_type = "articulation";
-                    tmp.link_name1 = CollisionLinkNames[j];
-                    tmp.link_name2 = CollisionLinkNames[k];
-                    ret.push_back(tmp);
-                } 
-            }
+      }
     }
-    for (size_t i = 0; i < CollisionObjects.size(); i++)
-        for (size_t j = 0; j < normal_objects.size(); j++) {
-            CollisionResult result;
-            result.clear();
-            fcl::collide(CollisionObjects[i].get(), normal_objects[j].get(), request, result);
-            if (result.isCollision()) {
-                WorldCollisionResult tmp;
-                tmp.res = result;
-                tmp.object_name1 = articulation_names[index];
-                tmp.object_name2 = normal_object_names[j];
-                tmp.collision_type = "normal_object";
-                tmp.link_name1 = CollisionLinkNames[i];
-                tmp.link_name2 = normal_object_names[j];
-                ret.push_back(tmp);
-            } 
-        }
+  return ret;
+}
 
-    if (use_point_cloud) {
-        if (has_point_cloud == false) {
-            std::cout << "No Point Cloud Provided!" << std::endl; 
-        }
-        else {
-            for (size_t i = 0; i < CollisionObjects.size(); i++) {
-                CollisionResult result;
-                result.clear();
-                fcl::collide(CollisionObjects[i].get(), point_cloud.get(), request, result);
-                if (result.isCollision()) {
-                    WorldCollisionResult tmp;
-                    tmp.res = result;
-                    tmp.object_name1 = articulation_names[index];
-                    tmp.object_name2 = "point_cloud";
-                    tmp.collision_type = "point_cloud";
-                    tmp.link_name1 = CollisionLinkNames[i];
-                    tmp.link_name2 = "point_cloud";
-                    ret.push_back(tmp);
-                } 
-            }
-        }
+template <typename S>
+std::vector<WorldCollisionResultTpl<S>> PlanningWorldTpl<S>::checkRobotCollision(
+    const CollisionRequest &request) const {
+  std::vector<WorldCollisionResult> ret;
+  CollisionResult result;
+
+  updateAttachedBodiesPose();
+
+  // Collect unplanned articulations, not attached scene objects
+  std::vector<ArticulatedModelPtr> unplanned_articulations;
+  std::vector<FCLObjectPtr> scene_objects;
+  for (const auto &[name, art] : articulation_map_)
+    if (planned_articulation_map_.find(name) == planned_articulation_map_.end())
+      unplanned_articulations.push_back(art);
+  for (const auto &[name, obj] : object_map_)
+    if (attached_body_map_.find(name) == attached_body_map_.end())
+      scene_objects.push_back(obj);
+
+  // Collision involving planned articulation
+  for (const auto &[art_name, art] : planned_articulation_map_) {
+    auto fcl_model = art->getFCLModel();
+    // Collision with unplanned articulation
+    for (const auto &art2 : unplanned_articulations) {
+      const auto results =
+          fcl_model->checkCollisionWith(art2->getFCLModel(), request, acm_);
+      ret.insert(ret.end(), results.begin(), results.end());
     }
-    if (use_attach && use_point_cloud) { // TODO: attached box with other articulated objects
-        if (has_attach == false) {
-            std::cout << "No Attached Box Provided!" << std::endl; 
-        }
-        else if (has_point_cloud == false) {
-            std::cout << "No Point Cloud Provided!" << std::endl; 
-        }
-        else { // currently, only collide with the point cloud, only support one articulation
-            Vector7 link_pose = pinocchio_model.getLinkPose(attach_link_id);
-            Transform3 pose;
-            pose.linear() = Quaternion(link_pose[3], link_pose[4], link_pose[5], link_pose[6]).matrix();
-            pose.translation() = link_pose.head(3);
-            pose = pose * attach_to_link_pose;
-            //std::cout << "attached box pose: " << pose << std::endl;
-            attached_box.get()->setTransform(pose);
 
-            CollisionResult result;
-            result.clear();
-            fcl::collide(attached_box.get(), point_cloud.get(), request, result);
-            if (result.isCollision()) {
-                WorldCollisionResult tmp;
-                tmp.res = result;
-                tmp.object_name1 = "attached_box";
-                tmp.object_name2 = "point_cloud";
-                tmp.collision_type = "attach";
-                tmp.link_name1 = "attached_box";
-                tmp.link_name2 = "point_cloud";
-                ret.push_back(tmp);
-            } 
-        }
+    // Collision with scene objects
+    for (const auto &scene_obj : scene_objects)
+      for (auto &result : fcl_model->checkCollisionWith(scene_obj, request, acm_)) {
+        result.collision_type = "self_sceneobject";
+        ret.push_back(result);
+      }
+  }
 
+  // Collision involving attached_body_map_
+  for (const auto &[attached_body_name, attached_body] : attached_body_map_) {
+    const auto attached_obj = attached_body->getObject();
+    // Collision with unplanned articulation
+    for (const auto &art2 : unplanned_articulations)
+      for (auto &result :
+           art2->getFCLModel()->checkCollisionWith(attached_obj, request, acm_)) {
+        result.collision_type = "attached_articulation";
+        ret.push_back(result);
+      }
+
+    // Collision with scene objects
+    for (const auto &scene_obj : scene_objects)
+      if (auto type = acm_->getAllowedCollision(attached_body_name, scene_obj->name);
+          !type || type == collision_detection::AllowedCollision::NEVER) {
+        result.clear();
+        collision_detection::fcl::collide(attached_obj, scene_obj, request, result);
+        if (result.isCollision()) {
+          WorldCollisionResult tmp;
+          tmp.res = result;
+          tmp.collision_type = "attached_sceneobject";
+          tmp.object_name1 = attached_body_name;
+          tmp.object_name2 = scene_obj->name;
+          tmp.link_name1 = attached_body_name;
+          tmp.link_name2 = scene_obj->name;
+          ret.push_back(tmp);
+        }
+      }
+  }
+  return ret;
+}
+
+template <typename S>
+std::vector<WorldCollisionResultTpl<S>> PlanningWorldTpl<S>::checkCollision(
+    const CollisionRequest &request) const {
+  auto ret1 = checkSelfCollision(request);
+  const auto ret2 = checkRobotCollision(request);
+  ret1.insert(ret1.end(), ret2.begin(), ret2.end());
+  return ret1;
+}
+
+template <typename S>
+WorldDistanceResultTpl<S> PlanningWorldTpl<S>::distanceSelf(
+    const DistanceRequest &request) const {
+  WorldDistanceResult ret;
+  DistanceResult result;
+
+  updateAttachedBodiesPose();
+
+  // Minimum distance involving planned articulation
+  for (const auto &[art_name, art] : planned_articulation_map_) {
+    auto fcl_model = art->getFCLModel();
+    // Articulation minimum distance to self-collision
+    if (const auto &tmp = fcl_model->distanceSelf(request, acm_);
+        tmp.min_distance < ret.min_distance)
+      ret = tmp;
+
+    // Minimum distance among planned_articulation_map_
+    for (const auto &[art_name2, art2] : planned_articulation_map_) {
+      if (art_name == art_name2) continue;
+      if (const auto &tmp = fcl_model->distanceWith(art2->getFCLModel(), request, acm_);
+          tmp.min_distance < ret.min_distance) {
+        ret = tmp;
+        ret.distance_type = "self_self";
+      }
     }
-    return ret;
-}
 
-template<typename DATATYPE>
-std::vector<WorldCollisionResultTpl<DATATYPE>> PlanningWorldTpl<DATATYPE>::collideFull(int index, CollisionRequest const& request) {
-    std::vector<WorldCollisionResult> ret1 = selfCollide(index, request);
-    std::vector<WorldCollisionResult> ret2 = collideWithOthers(index, request);
-    ret1.insert(ret1.end(), ret2.begin(), ret2.end());
-    return ret1;
-}
+    // Articulation minimum distance to attached_body_map_
+    for (const auto &[attached_body_name, attached_body] : attached_body_map_)
+      if (const auto &tmp =
+              fcl_model->distanceWith(attached_body->getObject(), request, acm_);
+          tmp.min_distance < ret.min_distance) {
+        ret = tmp;
+        ret.distance_type = "self_attached";
+      }
+  }
 
-
-template<typename DATATYPE>
-bool PlanningWorldTpl<DATATYPE>::collide() {
-    std::vector<WorldCollisionResult> ret = collideFull(0, CollisionRequest());
-    return ret.size() > 0;
-    /*for (size_t i = 0; i < articulations.size(); i++)
-        if (articulation_flags[i])
-            if (articulations[i]->getFCLModel().collide())
-                return true;*/
-    //return false;
-}
-
-
-/*template<typename DATATYPE>
-std::vector<WorldCollisionResultTpl<DATATYPE>> PlanningWorldTpl<DATATYPE>::collideFull(void) {
-    std::vector<WorldCollisionResult> ret;
-    for (size_t i = 0; i < articulations.size(); i++)
-        if (articulation_flags[i]) {
-            auto fcl_model = articulations[i]->getFCLModel();
-            auto results = fcl_model.collideFull();
-            auto CollisionLinkNames = fcl_model.getCollisionLinkNames();
-            auto CollisionPairs = fcl_model.getCollisionPairs();
-            for (size_t j = 0; j < results.size(); j++) {
-                WorldCollisionResult tmp;
-                auto x = CollisionPairs[j].first, y = CollisionPairs[j].second;
-                tmp.res = results[j];
-                tmp.object_id1 = i;
-                tmp.object_id2 = i;
-                tmp.object_type1 = "articulation";
-                tmp.object_type2 = "articulation";
-                tmp.link_name1 = CollisionLinkNames[x];
-                tmp.link_name2 = CollisionLinkNames[y];
-                ret.push_back(tmp);
-            }
+  // Minimum distance among attached_body_map_
+  for (auto it = attached_body_map_.begin(); it != attached_body_map_.end(); ++it)
+    for (auto it2 = attached_body_map_.begin(); it2 != it; ++it2) {
+      auto name1 = it->first, name2 = it2->first;
+      if (auto type = acm_->getAllowedCollision(name1, name2);
+          !type || type == collision_detection::AllowedCollision::NEVER) {
+        result.clear();
+        collision_detection::fcl::distance(it->second->getObject(),
+                                           it2->second->getObject(), request, result);
+        if (result.min_distance < ret.min_distance) {
+          ret.res = result;
+          ret.min_distance = result.min_distance;
+          ret.distance_type = "attached_attached";
+          ret.object_name1 = name1;
+          ret.object_name2 = name2;
+          ret.link_name1 = name1;
+          ret.link_name2 = name2;
         }
-    return ret;
-}*/
+      }
+    }
+  return ret;
+}
+
+template <typename S>
+WorldDistanceResultTpl<S> PlanningWorldTpl<S>::distanceRobot(
+    const DistanceRequest &request) const {
+  WorldDistanceResult ret;
+  DistanceResult result;
+
+  updateAttachedBodiesPose();
+
+  // Collect unplanned articulations, not attached scene objects
+  std::vector<ArticulatedModelPtr> unplanned_articulations;
+  std::vector<FCLObjectPtr> scene_objects;
+  for (const auto &[name, art] : articulation_map_)
+    if (planned_articulation_map_.find(name) == planned_articulation_map_.end())
+      unplanned_articulations.push_back(art);
+  for (const auto &[name, obj] : object_map_)
+    if (attached_body_map_.find(name) == attached_body_map_.end())
+      scene_objects.push_back(obj);
+
+  // Minimum distance involving planned articulation
+  for (const auto &[art_name, art] : planned_articulation_map_) {
+    auto fcl_model = art->getFCLModel();
+    // Minimum distance to unplanned articulation
+    for (const auto &art2 : unplanned_articulations)
+      if (const auto &tmp = fcl_model->distanceWith(art2->getFCLModel(), request, acm_);
+          tmp.min_distance < ret.min_distance)
+        ret = tmp;
+
+    // Minimum distance to scene objects
+    for (const auto &scene_obj : scene_objects)
+      if (const auto &tmp = fcl_model->distanceWith(scene_obj, request, acm_);
+          tmp.min_distance < ret.min_distance) {
+        ret = tmp;
+        ret.distance_type = "self_sceneobject";
+      }
+  }
+
+  // Minimum distance involving attached_body_map_
+  for (const auto &[attached_body_name, attached_body] : attached_body_map_) {
+    const auto attached_obj = attached_body->getObject();
+    // Minimum distance to unplanned articulation
+    for (const auto &art2 : unplanned_articulations)
+      if (const auto &tmp =
+              art2->getFCLModel()->distanceWith(attached_obj, request, acm_);
+          tmp.min_distance < ret.min_distance) {
+        ret = tmp;
+        ret.distance_type = "attached_articulation";
+      }
+
+    // Minimum distance to scene objects
+    for (const auto &scene_obj : scene_objects)
+      if (auto type = acm_->getAllowedCollision(attached_body_name, scene_obj->name);
+          !type || type == collision_detection::AllowedCollision::NEVER) {
+        result.clear();
+        collision_detection::fcl::distance(attached_obj, scene_obj, request, result);
+        if (result.min_distance < ret.min_distance) {
+          ret.res = result;
+          ret.min_distance = result.min_distance;
+          ret.distance_type = "attached_sceneobject";
+          ret.object_name1 = attached_body_name;
+          ret.object_name2 = scene_obj->name;
+          ret.link_name1 = attached_body_name;
+          ret.link_name2 = scene_obj->name;
+        }
+      }
+  }
+  return ret;
+}
+
+template <typename S>
+WorldDistanceResultTpl<S> PlanningWorldTpl<S>::distance(
+    const DistanceRequest &request) const {
+  const auto ret1 = distanceSelf(request);
+  const auto ret2 = distanceRobot(request);
+  return ret1.min_distance < ret2.min_distance ? ret1 : ret2;
+}
+
+}  // namespace mplib
