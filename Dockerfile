@@ -96,8 +96,8 @@ RUN git clone --single-branch -b v1.5.0 --depth 1 https://github.com/orocos/oroc
     cmake .. -DCMAKE_BUILD_TYPE=Release && make -j && make install && \
     rm -rf /workspace/orocos_kinematics_dynamics
 
-# RUN git clone --recursive https://github.com/vonHartz/MPlib.git && cd MPlib && python3.10 -m build
+RUN git clone --recursive https://github.com/vonHartz/MPlib.git && cd MPlib && python3.10 setup.py build develop
 
-RUN git clone --recursive https://github.com/vonHartz/MPlib.git && cd MPlib && python3.10 setup.py bdist_wheel
+# RUN git clone --recursive https://github.com/vonHartz/MPlib.git && cd MPlib && python3.10 setup.py bdist_wheel
 
 RUN useradd -rm -d /home/user -s /bin/bash -g root -u 1000 user
